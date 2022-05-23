@@ -49,6 +49,10 @@ struct MemoryGame<CardContent> where CardContent: Equatable {
         }
     }
     
+    mutating func shuffle() {
+        cards.shuffle()
+    }
+    
     private mutating func newscore(to newScore: Int) {
         score = newScore
     }
