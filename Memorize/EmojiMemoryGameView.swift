@@ -10,44 +10,81 @@ struct EmojiMemoryGameView: View {
     @ObservedObject var game : EmojiMemoryGame
     
     var body: some View {
-        VStack{
-            info
-            gameBody
-            HStack{
-                new
-                shuffle
+        ZStack(alignment: .bottom){
+            VStack{
+                info
+                gameBody
+                HStack{
+                    restart
+                    Spacer()
+                    shuffle
+                }
+                
+                .padding(.horizontal)
             }
+            deckBody
         }
-        .foregroundColor(game.theme.color)
+        .padding()
     }
+    
     @State private var dealt = Set<Int>()
     
     private func deal (_ card: EmojiMemoryGame.Card) {
         dealt.insert(card.id)
     }
     private func isUndealt (_ card: EmojiMemoryGame.Card) -> Bool {
-        !dealt.contains(card.id)
+        return !dealt.contains(card.id)
     }
     
-    var gameBody :some View {
+    @Namespace private var cardNamespace
+    var gameBody: some View {
         AspectVGrid (items: game.cards, aspectRadio: 2/3,content: { card in
             if isUndealt(card) || (!card.isFaceUp && card.isMatched) {
-                Color.clear
+                Rectangle().opacity(0)
             } else {
                 CardView(card)
+                    .zIndex(zIndex(of: card))
                     .padding(4)
-                    .transition(AnyTransition.asymmetric(insertion: .scale, removal: .opacity))
+                    .matchedGeometryEffect(id: card.id, in: cardNamespace)
+                    .transition(AnyTransition.asymmetric(insertion: .identity, removal: .scale))
                     .onTapGesture{
-                        
                         withAnimation{
                             game.choose(card)
                         }
                     }
             }
         })
-        .onAppear(){
-            withAnimation(){
-                game.cards.forEach { card in
+        .foregroundColor(game.theme.color)
+    }
+    
+    private func dealAnimation (for card: EmojiMemoryGame.Card) -> Animation {
+        var delay = 0.0
+        let delayTotal = 2.0
+        
+        if let index = game.cards.firstIndex(where: { $0.id == card.id }) {
+            delay = Double(index) * (delayTotal / Double(game.cards.count))
+        }
+        return Animation.easeInOut(duration: 0.5).delay(delay)
+    }
+    
+    private func zIndex (of card: EmojiMemoryGame.Card) -> Double {
+        -Double(game.cards.firstIndex(where: { $0.id == card.id }) ?? 0)
+    }
+    
+    var deckBody: some View {
+        ZStack{
+            ForEach(game.cards.filter(isUndealt)) {
+                card in CardView(card)
+                    .zIndex(zIndex(of: card))
+                    .matchedGeometryEffect(id: card.id, in: cardNamespace)
+                    .transition(AnyTransition.asymmetric(insertion: .opacity, removal: .identity))
+            }
+        }
+        .frame(width: 60, height: 90)
+        .foregroundColor(game.theme.color)
+        .onTapGesture {
+            game.cards.forEach { card in
+                withAnimation(dealAnimation(for: card)){
                     deal(card)
                 }
             }
@@ -71,6 +108,23 @@ struct EmojiMemoryGameView: View {
         .buttonStyle(GradientBackgroundStyle(game:game))
     }
     
+    var restart: some View {
+        Button{
+            withAnimation{
+            dealt = []
+            game.restart()
+            }
+        } label: {
+            VStack{
+            Image(systemName: "paintbrush")
+                .font(.body)
+            Text("Restart")
+                .fontWeight(.semibold)
+                .font(.footnote)
+            }
+        }
+        .buttonStyle(GradientBackgroundStyle(game:game))
+    }
     
     var info: some View {
         VStack{
@@ -85,21 +139,6 @@ struct EmojiMemoryGameView: View {
             .padding(.horizontal)
         }
     }
-    
-    var  new: some View {
-        Button {
-            game.newGame()
-        } label: {
-            VStack(alignment: .center) {
-                Image(systemName: "paintbrush")
-                    .font(.body)
-                Text("NewTheme")
-                    .fontWeight(.semibold)
-                    .font(.footnote)
-            }
-        }
-        .buttonStyle(GradientBackgroundStyle(game:game))
-    }
 }
 
 struct CardView: View {
@@ -109,26 +148,41 @@ struct CardView: View {
         self.card = card
     }
     
+    @State private var currentRemainingPercent = 0.0
+    
     var body: some View {
         GeometryReader{ geometry in
             ZStack {
-                Pie(startAngel: Angle.degrees(0 - 90), endAngle: Angle.degrees(110 - 90))
+                Group {
+                if card.isConsumingBonusTime {
+                    Pie(startAngle: Angle.degrees(0 - 90), endAngle: Angle.degrees((1 - currentRemainingPercent) * 360 - 90))
+                        .onAppear() {
+                            currentRemainingPercent = card.bonusRemaining
+                            withAnimation (.linear(duration: card.bonusTimeRemaining)){
+                                currentRemainingPercent = 0
+                            }
+                        }
+                } else {
+                    Pie(startAngle: Angle.degrees(0 - 90), endAngle: Angle.degrees((1 - card.bonusRemaining) * 360 - 90))
+                }
+            }
                     .opacity(0.6)
                     .padding(4)
                 Text(card.content)
                     .rotationEffect(Angle.degrees(card.isMatched ? 360 : 0))
                     .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: card.isMatched)
-                    .font(font(size:geometry.size))
+                    .font(font(size: geometry.size))
             }
             .cardify(isFaceUp: card.isFaceUp)
         }
     }
     
     private func font(size: CGSize) -> Font {
-        Font.system(size:min(size.width, size.height) * 0.7)
+        Font.system(size:min(size.width, size.height) * DrawingConstent.fontScale)
     }
+    
     struct DrawingConstent {
-        static let cornerRadius:CGFloat = 10
+        static let cornerRadius: CGFloat = 10
         static let lineWidth: CGFloat = 3
         static let fontScale: CGFloat = 0.7
     }
